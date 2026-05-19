@@ -119,6 +119,46 @@ async def get_layout_smali(session_id: str, layout_file: str):
             "text": text.strip()
         })
         
+    # Find all BARCODE strings
+    # Format: B type width ratio height x y data
+    # Example: B I2OF5 0.245 25 8 0 212 
+    b_pattern = re.compile(r'const-string [vp]\d+, "(B (\S+) (\S+) (\S+) (\S+) (\d+) (\d+)(.*?))"')
+    for match in b_pattern.finditer(content):
+        original_smali = match.group(0)
+        full_string = match.group(1)
+        b_type = match.group(2)
+        b_width = match.group(3)
+        b_ratio = match.group(4)
+        b_height = match.group(5)
+        x = int(match.group(6))
+        y = int(match.group(7))
+        text = match.group(8).strip()
+        
+        if not text:
+            ahead = content[match.end():match.end()+600]
+            var_match = re.search(r'->(get[A-Za-z0-9_]+)\(\)', ahead)
+            if var_match:
+                text = f"[{var_match.group(1)}]"
+            else:
+                var_match_iget = re.search(r'iget-object [vp]\d+, [^;]+;->([A-Za-z0-9_]+):', ahead)
+                if var_match_iget:
+                    text = f"[{var_match_iget.group(1)}]"
+                else:
+                    text = "[Dinâmica]"
+                    
+        elements.append({
+            "original_smali": original_smali,
+            "full_string": full_string,
+            "type": "B",
+            "x": x,
+            "y": y,
+            "b_type": b_type,
+            "b_width": b_width,
+            "b_ratio": b_ratio,
+            "b_height": b_height,
+            "text": text
+        })
+        
     # Find all LINE strings
     line_pattern = re.compile(r'const-string [vp]\d+, "(LINE (\d+) (\d+) (\d+) (\d+) (\d+(?:\.\d+)?))"')
     for match in line_pattern.finditer(content):

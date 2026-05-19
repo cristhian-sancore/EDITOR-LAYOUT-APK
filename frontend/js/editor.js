@@ -210,6 +210,45 @@ window.renderSmaliToCanvas = function(elements) {
         fullString: el.full_string
       });
       canvas.add(lineObj);
+    } 
+    else if (el.type === 'B') {
+      const x = el.x * SCALE_X;
+      const y = el.y * SCALE_Y;
+      
+      const rectObj = new fabric.Rect({
+        left: x,
+        top: y,
+        width: 320,
+        height: 40,
+        fill: 'transparent',
+        stroke: '#333',
+        strokeWidth: 1,
+        strokeDashArray: [4, 4],
+        isBarcode: true,
+        originalSmali: el.original_smali,
+        fullString: el.full_string,
+        bType: el.b_type,
+        bWidth: el.b_width,
+        bRatio: el.b_ratio,
+        bHeight: el.b_height,
+        bText: el.text
+      });
+      canvas.add(rectObj);
+      
+      const txtObj = new fabric.IText(el.text || '[CÓDIGO DE BARRAS]', {
+        left: x + 10,
+        top: y + 12,
+        fontFamily: 'Inter',
+        fontSize: 14,
+        fill: '#555',
+        fontWeight: 'bold',
+        selectable: false,
+        evented: false
+      });
+      rectObj.on('moving', () => {
+          txtObj.set({ left: rectObj.left + 10, top: rectObj.top + 12 });
+      });
+      canvas.add(txtObj);
     }
   });
   
@@ -259,6 +298,26 @@ window.generateSmaliReplacements = function() {
       const y1 = mapCanvasToDots(obj.top + obj.height);
       
       const newInnerString = `LINE ${x0} ${y0} ${x1} ${y1} 0.2`;
+      const newSmali = obj.originalSmali.replace(obj.fullString, newInnerString);
+      
+      if (newSmali !== obj.originalSmali) {
+        replacements.push({
+          original: obj.originalSmali,
+          new: newSmali
+        });
+      }
+    } 
+    else if (obj.type === 'rect' && obj.isBarcode) {
+      const x = mapCanvasToDots(obj.left);
+      const y = mapCanvasToDots(obj.top);
+      
+      let tail = "";
+      if(obj.fullString.endsWith("\\r\\n")) tail = "\\r\\n";
+      else if(obj.fullString.endsWith(" ")) tail = " ";
+      
+      const txt = obj.bText && !obj.bText.startsWith('[') ? obj.bText : '';
+      
+      const newInnerString = `B ${obj.bType} ${obj.bWidth} ${obj.bRatio} ${obj.bHeight} ${x} ${y} ${txt}${tail}`;
       const newSmali = obj.originalSmali.replace(obj.fullString, newInnerString);
       
       if (newSmali !== obj.originalSmali) {
