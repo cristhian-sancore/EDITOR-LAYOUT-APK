@@ -128,9 +128,7 @@
 
         if (response.ok) {
           localStorage.setItem('apk_session_id', data.session_id);
-          localStorage.setItem('apk_cpcl', data.cpcl_content);
-          localStorage.setItem('apk_filename', data.file_name);
-          window.location.href = '/editor.html';
+          window.location.href = '/layouts.html';
         } else {
           alert('Erro: ' + (data.error || 'Falha ao processar APK.'));
         }

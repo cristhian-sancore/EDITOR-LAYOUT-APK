@@ -2,10 +2,12 @@ import os
 import uuid
 import subprocess
 import shutil
+import re
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Dict
 
 app = FastAPI()
 
@@ -22,45 +24,9 @@ KEYSTORE_PATH = "/app/debug.keystore"
 
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
-class SaveLayoutRequest(BaseModel):
-    cpcl: str
-
-def find_cpcl_file(source_dir: str) -> str:
-    """Procura por um arquivo contendo CPCL ou as variaveis de impressao"""
-    search_dirs = [
-        os.path.join(source_dir, "assets"),
-        os.path.join(source_dir, "res", "raw")
-    ]
-    
-    for s_dir in search_dirs:
-        if not os.path.exists(s_dir):
-            continue
-        for root, _, files in os.walk(s_dir):
-            for file in files:
-                if file.endswith(('.txt', '.cpcl', '.prn')):
-                    filepath = os.path.join(root, file)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                            # Verifica se parece ser o arquivo de layout
-                            if "{NOME_COMPROMISSARIO}" in content or "! 0 200" in content or "LANCAMENTO_DESC_1" in content:
-                                return filepath
-                    except Exception:
-                        pass
-                        
-    # Se nao achar nas pastas especificas, procura em toda a pasta
-    for root, _, files in os.walk(source_dir):
-        for file in files:
-            filepath = os.path.join(root, file)
-            try:
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    if "{NOME_COMPROMISSARIO}" in content or "LANCAMENTO_DESC_1" in content:
-                        return filepath
-            except Exception:
-                pass
-
-    return None
+class SaveSmaliRequest(BaseModel):
+    replacements: List[Dict[str, str]]
+    layout_file: str
 
 @app.post("/api/upload")
 async def upload_apk(file: UploadFile = File(...)):
@@ -80,39 +46,113 @@ async def upload_apk(file: UploadFile = File(...)):
     except subprocess.CalledProcessError as e:
         return JSONResponse(status_code=500, content={"error": "Erro ao descompilar APK", "details": e.stderr})
         
-    cpcl_file = find_cpcl_file(source_dir)
-    if not cpcl_file:
-        return JSONResponse(status_code=404, content={"error": "Arquivo de layout CPCL não encontrado dentro do APK."})
-        
-    # Save the relative path of the CPCL file for this session
-    with open(os.path.join(session_dir, "layout_path.txt"), "w") as f:
-        f.write(cpcl_file)
-        
-    with open(cpcl_file, "r", encoding="utf-8", errors="ignore") as f:
-        cpcl_content = f.read()
-        
     return {
         "session_id": session_id,
-        "cpcl_content": cpcl_content,
-        "file_name": os.path.basename(cpcl_file)
+        "message": "APK extraído com sucesso"
     }
 
+@app.get("/api/list_layouts/{session_id}")
+async def list_layouts(session_id: str):
+    source_dir = os.path.join(WORKSPACE_DIR, session_id, "source")
+    if not os.path.exists(source_dir):
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
+        
+    layouts = []
+    # Search for Cpcl*.smali files
+    for root, _, files in os.walk(source_dir):
+        if "smali" in root: # Optimization: only look inside smali folders
+            for file in files:
+                if file.startswith("Cpcl") and file.endswith(".smali"):
+                    rel_path = os.path.relpath(os.path.join(root, file), source_dir)
+                    # Convert backslash to forward slash for consistency in JSON
+                    layouts.append(rel_path.replace("\\", "/"))
+                    
+    return {"layouts": sorted(layouts)}
+
+@app.get("/api/get_layout_smali/{session_id}")
+async def get_layout_smali(session_id: str, layout_file: str):
+    filepath = os.path.join(WORKSPACE_DIR, session_id, "source", layout_file)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Arquivo de layout não encontrado")
+        
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+        
+    elements = []
+    
+    # Find all CPCL text strings
+    # Pattern: const-string vX, "T font size x y text"
+    t_pattern = re.compile(r'const-string [vp]\d+, "(T (\d+) (\d+) (\d+) (\d+)(.*?))"')
+    for match in t_pattern.finditer(content):
+        original_smali = match.group(0) # The full const-string line
+        full_string = match.group(1) # The inner string "T 7 0 5 116 CLORO "
+        font = int(match.group(2))
+        size = int(match.group(3))
+        x = int(match.group(4))
+        y = int(match.group(5))
+        text = match.group(6)
+        
+        elements.append({
+            "original_smali": original_smali,
+            "full_string": full_string,
+            "type": "T",
+            "x": x,
+            "y": y,
+            "font": font,
+            "size": size,
+            "text": text.strip()
+        })
+        
+    # Find all LINE strings
+    line_pattern = re.compile(r'const-string [vp]\d+, "(LINE (\d+) (\d+) (\d+) (\d+) (\d+(?:\.\d+)?))"')
+    for match in line_pattern.finditer(content):
+        original_smali = match.group(0)
+        full_string = match.group(1)
+        x0 = int(match.group(2))
+        y0 = int(match.group(3))
+        x1 = int(match.group(4))
+        y1 = int(match.group(5))
+        thickness = float(match.group(6))
+        
+        elements.append({
+            "original_smali": original_smali,
+            "full_string": full_string,
+            "type": "LINE",
+            "x0": x0,
+            "y0": y0,
+            "x1": x1,
+            "y1": y1,
+            "thickness": thickness
+        })
+        
+    return {"elements": elements}
+
+@app.post("/api/save_layout_smali/{session_id}")
+async def save_layout_smali(session_id: str, data: SaveSmaliRequest):
+    filepath = os.path.join(WORKSPACE_DIR, session_id, "source", data.layout_file)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Arquivo de layout não encontrado")
+        
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+        
+    # Apply replacements
+    for rep in data.replacements:
+        orig = rep.get("original")
+        new = rep.get("new")
+        if orig and new:
+            content = content.replace(orig, new)
+            
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+        
+    return {"status": "ok"}
+
 @app.post("/api/build/{session_id}")
-async def build_apk(session_id: str, data: SaveLayoutRequest):
+async def build_apk(session_id: str):
     session_dir = os.path.join(WORKSPACE_DIR, session_id)
     if not os.path.exists(session_dir):
         raise HTTPException(status_code=404, detail="Sessão não encontrada")
-        
-    layout_path_file = os.path.join(session_dir, "layout_path.txt")
-    if not os.path.exists(layout_path_file):
-        raise HTTPException(status_code=404, detail="Caminho do layout não encontrado")
-        
-    with open(layout_path_file, "r") as f:
-        cpcl_file = f.read().strip()
-        
-    # Overwrite the CPCL file
-    with open(cpcl_file, "w", encoding="utf-8") as f:
-        f.write(data.cpcl)
         
     source_dir = os.path.join(session_dir, "source")
     dist_apk = os.path.join(source_dir, "dist", "app.apk")
@@ -133,7 +173,6 @@ async def build_apk(session_id: str, data: SaveLayoutRequest):
     # 3. Sign APK
     final_apk = os.path.join(session_dir, "app-modificado.apk")
     try:
-        # We copy aligned to final and sign in place
         shutil.copy(aligned_apk, final_apk)
         subprocess.run([
             "apksigner", "sign", 

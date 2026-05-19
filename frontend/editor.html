@@ -130,41 +130,67 @@
     const API_URL = "http://localhost:8000/api";
     let sessionId = null;
 
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
       sessionId = localStorage.getItem('apk_session_id');
-      const cpcl = localStorage.getItem('apk_cpcl');
-      const filename = localStorage.getItem('apk_filename');
+      const layoutFile = localStorage.getItem('apk_layout_file');
 
-      if (!sessionId || !cpcl) {
+      if (!sessionId || !layoutFile) {
         window.location.href = '/';
         return;
       }
 
-      document.getElementById('fileNameDisplay').textContent = "Arquivo: " + filename;
-      document.getElementById('cpclRaw').textContent = cpcl;
-
-      if (typeof window.parseCpclToCanvas === 'function') {
-        window.parseCpclToCanvas(cpcl);
+      const filename = layoutFile.split('/').pop();
+      document.getElementById('fileNameDisplay').textContent = "Layout: " + filename;
+      
+      // Carregar os elementos do Smali
+      try {
+        const res = await fetch(`${API_URL}/get_layout_smali/${sessionId}?layout_file=${encodeURIComponent(layoutFile)}`);
+        const data = await res.json();
+        
+        if (data.elements) {
+            window.smaliElements = data.elements; // Guarda no window para o editor.js
+            document.getElementById('cpclRaw').textContent = JSON.stringify(data.elements, null, 2);
+            
+            if (typeof window.renderSmaliToCanvas === 'function') {
+              window.renderSmaliToCanvas(data.elements);
+            }
+        }
+      } catch (e) {
+          alert("Erro ao carregar elementos do arquivo Smali");
       }
 
       document.getElementById('saveAndBuildBtn').addEventListener('click', async () => {
-          if(typeof window.generateCPCL === 'function') {
-              window.generateCPCL();
+          let replacements = [];
+          if(typeof window.generateSmaliReplacements === 'function') {
+              replacements = window.generateSmaliReplacements();
           }
-          const newCpcl = document.getElementById('cpclRaw').textContent;
-          if(newCpcl === "—" || newCpcl.trim() === "") {
-              alert("Gere o CPCL primeiro!");
+          
+          if(replacements.length === 0) {
+              alert("Nenhuma modificação foi feita ou ocorreu um erro.");
               return;
           }
 
-          document.getElementById('loadingText').innerText = "Compilando e assinando APK... (Isso pode demorar alguns minutos)";
+          document.getElementById('loadingText').innerText = "Salvando layout e recompilando APK... (Isso pode demorar alguns minutos)";
           document.getElementById('loadingOverlay').style.display = "flex";
           
           try {
-              const res = await fetch(`${API_URL}/build/${sessionId}`, {
+              // Primeiro salva as substituições
+              const saveRes = await fetch(`${API_URL}/save_layout_smali/${sessionId}`, {
                   method: "POST",
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ cpcl: newCpcl })
+                  body: JSON.stringify({ 
+                      layout_file: layoutFile,
+                      replacements: replacements
+                  })
+              });
+              
+              if (!saveRes.ok) {
+                  throw new Error("Erro ao salvar o arquivo Smali");
+              }
+              
+              // Depois manda buildar o APK
+              const res = await fetch(`${API_URL}/build/${sessionId}`, {
+                  method: "POST"
               });
               
               const json = await res.json();
@@ -178,7 +204,7 @@
               }
           } catch(e) {
               document.getElementById('loadingOverlay').style.display = "none";
-              alert("Erro de comunicação com o servidor.");
+              alert(e.message || "Erro de comunicação com o servidor.");
           }
       });
     });
