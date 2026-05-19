@@ -53,12 +53,38 @@
         border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px;
     }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    .progress-container {
+        width: 80%;
+        max-width: 400px;
+        background-color: #334155;
+        border-radius: 8px;
+        margin-top: 20px;
+        overflow: hidden;
+    }
+    
+    .progress-bar {
+        width: 0%;
+        height: 8px;
+        background-color: #38bdf8;
+        transition: width 0.3s ease;
+    }
+    
+    #loadingText {
+        margin-top: 15px;
+        font-size: 16px;
+        color: #cbd5e1;
+    }
   </style>
 </head>
 <body>
   <div id="loadingOverlay">
       <div class="spinner"></div>
-      <div>Descompilando APK e buscando layout CPCL...</div>
+      <div>Descompilando APK (Isto pode levar de 1 a 2 minutos)...</div>
+      <div class="progress-container">
+          <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div id="loadingText">Enviando arquivo...</div>
   </div>
 
   <div class="upload-container">
@@ -116,23 +142,52 @@
       formData.append('file', file);
 
       overlay.style.display = 'flex';
+      const progressBar = document.getElementById('progressBar');
+      const loadingText = document.getElementById('loadingText');
+      
+      let progress = 0;
+      progressBar.style.width = '0%';
+      loadingText.textContent = 'Enviando arquivo para o servidor...';
+
+      // Simula o progresso da extração (já que não temos websocket)
+      const interval = setInterval(() => {
+          if (progress < 40) {
+              progress += 2; // Rápido no início (upload)
+          } else if (progress < 85) {
+              progress += 0.5; // Lento durante a extração (baksmali)
+              loadingText.textContent = 'Extraindo código fonte (baksmali)...';
+          } else if (progress < 95) {
+              progress += 0.1; // Muito lento no final
+              loadingText.textContent = 'Buscando layouts CPCL nas classes...';
+          }
+          progressBar.style.width = progress + '%';
+      }, 500);
 
       try {
-        const response = await fetch('http://localhost:8000/api/upload', {
+        const response = await fetch('/api/upload', {
           method: 'POST',
           body: formData
         });
 
-        const data = await response.json();
-        overlay.style.display = 'none';
+        clearInterval(interval);
+        progressBar.style.width = '100%';
+        loadingText.textContent = 'Finalizado!';
 
-        if (response.ok) {
-          localStorage.setItem('apk_session_id', data.session_id);
-          window.location.href = '/layouts.html';
-        } else {
-          alert('Erro: ' + (data.error || 'Falha ao processar APK.'));
-        }
+        const data = await response.json();
+        
+        // Dá um tempinho pra ver a barra em 100%
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            if (response.ok) {
+              localStorage.setItem('apk_session_id', data.session_id);
+              window.location.href = '/layouts.html';
+            } else {
+              alert('Erro: ' + (data.error || 'Falha ao processar APK.'));
+            }
+        }, 500);
+        
       } catch (error) {
+        clearInterval(interval);
         overlay.style.display = 'none';
         alert('Erro de conexão com o servidor backend.');
       }
