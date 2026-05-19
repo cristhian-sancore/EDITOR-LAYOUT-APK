@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 # Install system dependencies: Java, apktool, zipalign, apksigner
 RUN apt-get update && apt-get install -y \
-    openjdk-17-jdk-headless \
+    default-jdk-headless \
     wget \
     zipalign \
     apksigner \
