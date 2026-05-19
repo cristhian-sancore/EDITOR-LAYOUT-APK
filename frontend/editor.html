@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor de Layout do APK</title>
+  <link rel="stylesheet" href="/css/editor.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fetch/1.1.0/fetch.min.js"></script>
+  <!-- Fabric.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+  <style>
+    .var-item {
+      cursor: pointer;
+      padding: 4px 6px;
+      background: #1e293b;
+      border-radius: 4px;
+      border: 1px solid #334155;
+      transition: all 0.2s;
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .var-item:hover {
+      background: #38bdf8;
+      color: #0f172a;
+    }
+    #loadingOverlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15,23,42,0.9); z-index: 9999;
+        display: none; flex-direction: column; align-items: center; justify-content: center;
+        color: white; font-size: 20px; font-family: sans-serif;
+    }
+    .spinner {
+        border: 6px solid #334155; border-top: 6px solid #38bdf8;
+        border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay">
+      <div class="spinner"></div>
+      <div id="loadingText">Processando APK...</div>
+  </div>
+
+  <header class="topbar">
+    <div style="display: flex; align-items: center; gap: 1rem;">
+      <button class="btn btn-secondary" onclick="window.location.href='/'">⬅ Voltar</button>
+      <h1>⚡ Editor de APK (Zebra CPCL)</h1>
+    </div>
+    <div style="display: flex; gap: 1rem; align-items: center;">
+      <span style="color: #94a3b8" id="fileNameDisplay">Arquivo: ...</span>
+      <button class="btn btn-success" id="saveAndBuildBtn">💾 Salvar e Gerar APK</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Toolbar esquerda -->
+    <aside class="panel-left">
+      <div class="section-title">Ferramentas</div>
+      <button class="tool-btn" data-tool="addText">Adicionar Texto</button>
+      <button class="tool-btn" data-tool="addRect">Retângulo</button>
+      <button class="tool-btn" data-tool="addLine">Linha</button>
+      <button class="tool-btn" data-tool="addBarcode">Cód. de Barras</button>
+      <hr class="sep">
+      <div class="section-title">Papel da Impressora</div>
+      <div class="prop-panel">
+        <label>Largura (mm)
+          <input type="number" id="paperWidth" value="105">
+        </label>
+        <label>Altura (mm)
+          <input type="number" id="paperHeight" value="250">
+        </label>
+        <button class="btn btn-primary" id="applyPaperSize" style="width:100%">Ajustar Tela</button>
+      </div>
+      <hr class="sep">
+      <div id="propPanel" class="prop-panel hidden">
+        <label>Texto/Conteúdo
+          <input type="text" id="textContent" placeholder="Conteúdo do texto">
+        </label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <label>Fonte CPCL
+            <select id="fontFamily">
+              <option value="5">Normal (5)</option>
+              <option value="7">Grande (7)</option>
+              <option value="0">Pequena (0)</option>
+            </select>
+          </label>
+          <label>Tam. Visual (px)
+            <input type="number" id="fontSize" min="8" max="120" step="1" value="14">
+          </label>
+        </div>
+        <label>Cor do Elemento
+          <input type="color" id="fontColor" value="#000000">
+        </label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <button class="btn btn-secondary btn-sm" id="duplicateObj">Copiar</button>
+          <button class="btn btn-danger btn-sm" id="deleteObj">Remover</button>
+        </div>
+        <button class="btn btn-primary" id="applyProps" style="width:100%; margin-top: 10px;">Aplicar Alterações</button>
+      </div>
+      <hr class="sep">
+      <div class="section-title">Variáveis (Clique para copiar)</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 350px; overflow-y: auto; font-size: 11px; background: #0f172a; padding: 8px; border-radius: 4px; border: 1px solid #334155;">
+        <div class="var-item" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiado!')">{NOME_COMPROMISSARIO}</div>
+        <div class="var-item" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiado!')">{ENDERECO_LOGRADOURO}</div>
+        <div class="var-item" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiado!')">{CEP}</div>
+        <div class="var-item" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiado!')">{VALOR_PAGAR}</div>
+        <div class="var-item" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiado!')">{CODIGO_BARRAS}</div>
+      </div>
+    </aside>
+
+    <!-- Canvas central -->
+    <main class="panel-center">
+      <canvas id="cvs" width="840" height="2000"></canvas>
+    </main>
+
+    <!-- Painel CPCL raw direita -->
+    <aside class="panel-right">
+      <div class="section-title">CPCL Extraído</div>
+      <pre id="cpclRaw" class="cpcl-box">—</pre>
+    </aside>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- A api.js the saemi-saas is not needed here if it conflicts, but we kept it. 
+       editor.js is what renders Fabric -->
+  <script src="/js/editor.js"></script>
+  <script>
+    const API_URL = "http://localhost:8000/api";
+    let sessionId = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      sessionId = localStorage.getItem('apk_session_id');
+      const cpcl = localStorage.getItem('apk_cpcl');
+      const filename = localStorage.getItem('apk_filename');
+
+      if (!sessionId || !cpcl) {
+        window.location.href = '/';
+        return;
+      }
+
+      document.getElementById('fileNameDisplay').textContent = "Arquivo: " + filename;
+      document.getElementById('cpclRaw').textContent = cpcl;
+
+      if (typeof window.parseCpclToCanvas === 'function') {
+        window.parseCpclToCanvas(cpcl);
+      }
+
+      document.getElementById('saveAndBuildBtn').addEventListener('click', async () => {
+          if(typeof window.generateCPCL === 'function') {
+              window.generateCPCL();
+          }
+          const newCpcl = document.getElementById('cpclRaw').textContent;
+          if(newCpcl === "—" || newCpcl.trim() === "") {
+              alert("Gere o CPCL primeiro!");
+              return;
+          }
+
+          document.getElementById('loadingText').innerText = "Compilando e assinando APK... (Isso pode demorar alguns minutos)";
+          document.getElementById('loadingOverlay').style.display = "flex";
+          
+          try {
+              const res = await fetch(`${API_URL}/build/${sessionId}`, {
+                  method: "POST",
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ cpcl: newCpcl })
+              });
+              
+              const json = await res.json();
+              if(res.ok) {
+                  document.getElementById('loadingOverlay').style.display = "none";
+                  alert("APK gerado com sucesso! Iniciando download...");
+                  window.location.href = `http://localhost:8000${json.download_url}`;
+              } else {
+                  document.getElementById('loadingOverlay').style.display = "none";
+                  alert("Erro ao compilar: " + (json.detail || json.error));
+              }
+          } catch(e) {
+              document.getElementById('loadingOverlay').style.display = "none";
+              alert("Erro de comunicação com o servidor.");
+          }
+      });
+    });
+    
+    function showToast(msg) {
+        const toast = document.getElementById("toast");
+        toast.innerText = msg;
+        toast.className = "show";
+        setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
+    }
+  </script>
+</body>
+</html>

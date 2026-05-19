@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: apk_editor_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - apk_workspace:/app/workspace
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    container_name: apk_editor_frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  apk_workspace:
