@@ -122,6 +122,40 @@ $('#applyPaperSize').addEventListener('click', () => {
   showToast(`Bobina ajustada para ${w}x${h} mm`);
 });
 
+// Lógica para Molde (Imagem de Fundo)
+$('#bgUploadBtn')?.addEventListener('click', () => {
+  $('#bgUploadInput').click();
+});
+
+$('#bgUploadInput')?.addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = function(f) {
+    const data = f.target.result;
+    fabric.Image.fromURL(data, function(img) {
+      // Ajusta a imagem para caber no tamanho do papel (canvas)
+      const scaleX = canvas.width / img.width;
+      // Para não distorcer, mantemos a proporção? O papel termico geralmente não é distorcido.
+      // Vamos forçar o tamanho exato do canvas
+      canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+        scaleX: canvas.width / img.width,
+        scaleY: canvas.height / img.height,
+        opacity: 0.5 // Deixa meio transparente para ver a grade
+      });
+      $('#bgRemoveBtn').style.display = 'block';
+    });
+  };
+  reader.readAsDataURL(file);
+});
+
+$('#bgRemoveBtn')?.addEventListener('click', () => {
+  canvas.setBackgroundImage(null, canvas.renderAll.bind(canvas));
+  $('#bgRemoveBtn').style.display = 'none';
+  $('#bgUploadInput').value = ''; // reseta
+});
+
 function drawGrid(){
   const step = 20; 
   for(let i=0;i<canvas.width;i+=step){
