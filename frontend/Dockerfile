@@ -9,7 +9,7 @@ RUN echo 'server { \
     client_max_body_size 50M; \
     location / { root /usr/share/nginx/html; index index.html index.htm; } \
     location /api/ { \
-        proxy_pass http://backend-editor-apk:8000/api/; \
+        proxy_pass http://backend-editor:8000/api/; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
         proxy_read_timeout 600s; \
