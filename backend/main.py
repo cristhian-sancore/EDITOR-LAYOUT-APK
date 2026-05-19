@@ -90,7 +90,23 @@ async def get_layout_smali(session_id: str, layout_file: str):
         size = int(match.group(3))
         x = int(match.group(4))
         y = int(match.group(5))
-        text = match.group(6)
+        text = match.group(6).strip()
+        
+        # If the string has no text, it probably appends a dynamic variable next.
+        # Let's peek ahead 500 characters to find the getter method.
+        if not text:
+            ahead = content[match.end():match.end()+600]
+            # Look for ->get...()
+            var_match = re.search(r'->(get[A-Za-z0-9_]+)\(\)', ahead)
+            if var_match:
+                text = f"[{var_match.group(1)}]"
+            else:
+                # Some variables are accessed via iget-object instead of invoke-virtual getter
+                var_match_iget = re.search(r'iget-object [vp]\d+, [^;]+;->([A-Za-z0-9_]+):', ahead)
+                if var_match_iget:
+                    text = f"[{var_match_iget.group(1)}]"
+                else:
+                    text = "[Dinâmica]"
         
         elements.append({
             "original_smali": original_smali,

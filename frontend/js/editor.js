@@ -88,6 +88,10 @@ $('#applyProps').addEventListener('click',()=>{
       cpclFont:font,
       text: $('#textContent').value
     });
+    // If the user manually edits the text, it's no longer considered a dynamic variable wrapper
+    if (!obj.text.startsWith('[') || !obj.text.endsWith(']')) {
+       obj.isDynamic = false;
+    }
   }else if(obj.type==='rect' || obj.type==='line'){
     obj.set({stroke:color});
   }
@@ -154,7 +158,8 @@ window.renderSmaliToCanvas = function(elements) {
         fill: '#000',
         cpclFont: font,
         originalSmali: el.original_smali,
-        fullString: el.full_string
+        fullString: el.full_string,
+        isDynamic: el.text && el.text.startsWith('[') && el.text.endsWith(']')
       });
       canvas.add(txtObj);
     } 
@@ -189,7 +194,7 @@ window.generateSmaliReplacements = function() {
       const y = mapCanvasToDots(obj.top);
       const font = obj.cpclFont || '7';
       const size = '0'; // Smali sizes are usually 0 by default
-      const txt = obj.text === '[Variável Dinâmica]' ? '' : obj.text.replace(/\r?\n/g,' ');
+      const txt = obj.isDynamic ? '' : obj.text.replace(/\r?\n/g,' ');
       
       // We reconstruct the string: "T font size x y text"
       // But we must respect the original spacing/trailing characters.
